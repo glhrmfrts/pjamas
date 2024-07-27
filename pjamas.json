@@ -1,0 +1,10 @@
+{
+  "Name": "test-project",
+  "Compiler": "pas2js",
+  "DownloadedPackagesPath": "pjamas-packages",
+  "UnitsDirectories": ["src"],
+  "Dependencies": {
+    "github.com/glhrmfrts/wetween": "0.4.0",
+    "github.com/graemeg/fptest": "master"
+  }
+}

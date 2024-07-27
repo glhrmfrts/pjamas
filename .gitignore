@@ -1,0 +1,7 @@
+*.exe
+*.o
+*.dll
+*.lib
+*.a
+node_modules
+pjamas-packages

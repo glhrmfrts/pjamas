@@ -1,0 +1,15 @@
+{
+  "name": "pjamas",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "watch": "npx chokidar *.lpr *.pas -c \"fpc pjamas.lpr && ./pjamas.exe okay\""
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "chokidar-cli": "^3.0.0"
+  }
+}
