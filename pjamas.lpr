@@ -22,14 +22,14 @@ type
 
     procedure BuildDownloadURL(var URL, DesiredFileName, DesiredExtension: string); virtual; abstract;
     procedure Install(const Path, InstallDir: string); virtual; abstract;
-    procedure GetPackagePath(var Path: string); virtual; abstract;
+    function GetPackagePath(var Path: string): boolean; virtual; abstract;
   end;
 
   TGithubDependency = class (TDependency) public
     constructor Create(aName, aVersion: string);
     procedure BuildDownloadURL(var URL, DesiredFileName, DesiredExtension: string); override;
     procedure Install(const Path, InstallDir: string); override;
-    procedure GetPackagePath(var Path: string); override;
+    function GetPackagePath(var Path: string): boolean; override;
   end;
 
   TLockedDependency = record
@@ -67,6 +67,8 @@ type
     procedure LoadFromFile(const ADir, AFilename: string);
     procedure DownloadDependencies;
     procedure MakeUpData(const ADir: string);
+    function SaveToJSON(): string;
+    procedure SaveToFile(const AFilename: string);
   end;
 
     //Dependencies: TDependency;
@@ -99,9 +101,14 @@ type
     procedure WriteHelp; virtual;
 
     procedure AddCommand(names: TStringArray; description: string; proc: TCommandProc);
-    procedure CmdDownloadGithubRepo(paramIndex: integer);
-    procedure CmdDownloadAnyRepo(paramIndex: integer);
+    procedure CmdBuild(paramIndex: integer);
+    procedure CmdGet(paramIndex: integer);
+    procedure CmdInstalled(paramIndex: integer);
+    procedure CmdRemove(paramIndex: integer);
+    procedure CmdUnits(paramIndex: integer);
     procedure ExecuteCommand(cmd: string; paramIndex: integer);
+    procedure LoadRootProject;
+    procedure MainRoutine;
   end;
 
 
@@ -122,6 +129,9 @@ var
   CurrentPackage: TPackage;
   PackageQueue: TPackageQueue;
   UnitDirs: TStringList;
+  CommandParams: TStringArray;
+  DoDownloads: boolean;
+  DoWritePackage: boolean;
   ForceDownload: boolean;
 
 
@@ -251,7 +261,7 @@ begin
 end;
 
 
-procedure TGithubDependency.GetPackagePath(var Path: string);
+function TGithubDependency.GetPackagePath(var Path: string): boolean;
 var
   InstallDest: string;
   Res: TSearchRec;
@@ -276,9 +286,10 @@ begin
   end;
 
   if Length(MainDir) = 0 then
-    raise Exception.CreateFmt('malformed github package: %s', [InstallDest]);
+    exit(false);
 
   Path := Format('%s/%s', [InstallDest, MainDir]);
+  exit(true);
 end;
 
 
@@ -368,12 +379,57 @@ begin
 end;
 
 
+function TPackage.SaveToJSON(): string;
+var
+  JSONObject: TJSONObject;
+  JSONArray: TJSONArray;
+  DepsObject: TJSONObject;
+  DepPair: specialize TPair<string, string>;
+  I: Integer;
+
+  function CompilerToString(com: TCompiler): string;
+  begin
+    case com of
+      compilerFPC : Result := 'FPC';
+      compilerPas2JS : Result := 'Pas2JS';
+    end;
+  end;
+
+begin
+  JSONObject := TJSONObject.Create;
+  try
+    JSONObject.Add('Name', Name);
+    JSONObject.Add('Version', Version);
+    JSONObject.Add('Compiler', CompilerToString(Compiler));
+    JSONObject.Add('DownloadedPackagesPath', DownloadedPackagesPath);
+
+    JSONArray := TJSONArray.Create;
+    for I:=0 to UnitsDirectories.Count - 1 do JSONArray.Add(UnitsDirectories[I]);
+    JSONObject.Add('UnitsDirectories', JSONArray);
+
+    DepsObject := TJSONObject.Create;
+    for DepPair in DependencyDict do DepsObject.Add(DepPair.Key, DepPair.Value);
+    JSONObject.Add('Dependencies', DepsObject);
+
+    Result := JSONObject.AsJSON;
+  finally
+    JSONObject.Free;
+  end
+end;
+
+
+procedure TPackage.SaveToFile(const AFilename: string);
+begin
+
+end;
+
+
 procedure TPackage.MakeUpData(const ADir: string);
 var
   Rec: TSearchRec;
   It: integer;
 begin
-  Path:=ADir;
+  Path := ADir;
   It := FindFirst(IncludeTrailingPathDelimiter(Path) + '*', faAnyFile, Rec);
   try
     while It = 0 do
@@ -413,27 +469,31 @@ begin
     FileDest := DownloadDestination(DesiredFileName, DesiredExtension);
     InstallDest := InstallDestination(DesiredFileName);
 
-    if ForceDownload or (not FileExists(FileDest)) then
+    if DoDownloads then
     begin
-      DownloadFile(url, FileDest);
+      if ForceDownload or (not FileExists(FileDest)) then
+      begin
+        DownloadFile(url, FileDest);
+      end;
+
+      if ForceDownload or (not DirectoryExists(InstallDest)) then
+      begin
+        Dep.Value.Install(FileDest, InstallDest);
+      end;
     end;
 
-    if ForceDownload or (not DirectoryExists(InstallDest)) then
+    if Dep.Value.GetPackagePath(PkgPath) then
     begin
-      Dep.Value.Install(FileDest, InstallDest);
+      PkgFile := Format('%s/pjamas.json', [PkgPath]);
+      Pkg := TPackage.Create;
+
+      if FileExists(PkgFile) then
+        Pkg.LoadFromFile(PkgPath, PkgFile)
+      else
+        Pkg.MakeUpData(PkgPath);
+
+      PackageQueue.Enqueue(Pkg);
     end;
-
-    Dep.Value.GetPackagePath(PkgPath);
-
-    PkgFile := Format('%s/pjamas.json', [PkgPath]);
-    Pkg := TPackage.Create;
-
-    if FileExists(PkgFile) then
-      Pkg.LoadFromFile(PkgPath, PkgFile)
-    else
-      Pkg.MakeUpData(PkgPath);
-
-    PackageQueue.Enqueue(Pkg);
   end;
 end;
 
@@ -456,17 +516,55 @@ begin
 end;
 
 
-procedure TPjamasApplication.CmdDownloadGithubRepo(paramIndex: integer);
+procedure TPjamasApplication.CmdBuild(paramIndex: integer);
 begin
-  writeln('DownloadGithubRepo');
-  //RooTPackage.AddDependency(Arg1, Arg2);
-  //RooTPackage.SaveToJSON();
+  // @TODO
 end;
 
 
-procedure TPjamasApplication.CmdDownloadAnyRepo(paramIndex: integer);
+procedure TPjamasApplication.CmdGet(paramIndex: integer);
+var
+  Dep: string;
+  Version: string;
 begin
-  writeln('DownloadAnyRepo');
+  if paramIndex <= High(CommandParams) then
+  begin
+    Dep := CommandParams[paramIndex];
+    Version := 'master';
+
+    if paramIndex+1 <= High(CommandParams) then
+      Version := CommandParams[paramIndex+1];
+
+    RootPackage.DependencyDict.AddOrSetValue(Dep, Version);
+
+    DoDownloads := true;
+    DoWritePackage := true;
+  end;
+end;
+
+
+procedure TPjamasApplication.CmdInstalled(paramIndex: integer);
+begin
+end;
+
+
+procedure TPjamasApplication.CmdRemove(paramIndex: integer);
+var
+  Dep: string;
+begin
+  if paramIndex <= High(CommandParams) then
+  begin
+    Dep := CommandParams[paramIndex];
+    RootPackage.DependencyDict.Remove(Dep);
+    DoWritePackage := true;
+  end;
+end;
+
+
+procedure TPjamasApplication.CmdUnits(paramIndex: integer);
+begin
+  DoDownloads := false;
+  DoWritePackage := false;
 end;
 
 
@@ -481,20 +579,62 @@ begin
 end;
 
 
+procedure TPjamasApplication.LoadRootProject;
+begin
+  RootPackage := TPackage.Create;
+  RootPackage.LoadFromFile('.', 'pjamas.json');
+end;
+
+
+procedure TPjamasApplication.MainRoutine;
+var
+  UnitDir: string;
+begin
+  UnitDirs := TStringList.Create;
+  PackageQueue := TPackageQueue.Create;
+
+  if not FileExists('pjamas.json') then
+  begin
+    ShowException(Exception.Create('not in a pjamas package'));
+    Terminate;
+    Exit;
+  end;
+
+  if not DirectoryExists(RootPackage.DownloadedPackagesPath) then
+    Mkdir(RootPackage.DownloadedPackagesPath);
+
+  if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.DownloadedPackagesPath)+DownloadDirName) then
+    Mkdir(IncludeTrailingPathDelimiter(RootPackage.DownloadedPackagesPath)+DownloadDirName);
+
+  if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.DownloadedPackagesPath)+InstalledDirName) then
+    Mkdir(IncludeTrailingPathDelimiter(RootPackage.DownloadedPackagesPath)+InstalledDirName);
+
+  PackageQueue.Enqueue(RootPackage);
+  repeat
+    CurrentPackage := PackageQueue.Dequeue;
+    CurrentPackage.DownloadDependencies;
+    for UnitDir in CurrentPackage.UnitsDirectories do
+    begin
+      UnitDirs.Add(UnitDir);
+    end;
+  until PackageQueue.Count = 0;
+end;
+
+
 procedure TPjamasApplication.DoRun;
 var
   ErrorMsg: String;
-  nonOptions: TStringArray;
   UnitDir: string;
 begin
-  AddCommand(['build'], 'Build the Pas2JS project', @CmdDownloadGithubRepo);
-  AddCommand(['init'], 'Initialize project', @CmdDownloadGithubRepo);
-  AddCommand(['gh', 'github'], 'Download dependency from github repo', @CmdDownloadGithubRepo);
-  AddCommand(['get'], 'Download dependency from url', @CmdDownloadAnyRepo);
-  AddCommand(['install'], 'Download dependency from index', @CmdDownloadAnyRepo);
-  AddCommand(['list'], 'List packages from index', @CmdDownloadAnyRepo);
-  AddCommand(['remove'], 'Remove dependency from project', @CmdDownloadAnyRepo);
-  AddCommand(['units'], 'Return units directories used by this project (this string should be fed into pas2js options)', @CmdDownloadAnyRepo);
+  //AddCommand(['build'], 'Build the Pas2JS project', @CmdBuild);
+  AddCommand(['get'], 'Add dependency to project', @CmdGet);
+  AddCommand(['installed'], 'List installed dependencies', @CmdInstalled);
+  AddCommand(['remove'], 'Remove dependency from project', @CmdRemove);
+  AddCommand(
+    ['units'],
+    'Return units directories used by this project (this string should be fed into pas2js options)',
+    @CmdUnits
+  );
 
   // quick check parameters
   ErrorMsg := CheckOptions(ShortOpts, LongOpts);
@@ -518,39 +658,18 @@ begin
 
   ForceDownload := HasOption('f', 'force-download');
 
-  nonOptions := GetNonOptions(ShortOpts, LongOpts);
+  LoadRootProject;
 
-  UnitDirs := TStringList.Create;
-  PackageQueue := TPackageQueue.Create;
-  RootPackage := TPackage.Create;
+  CommandParams := GetNonOptions(ShortOpts, LongOpts);
+  if Length(CommandParams) > 0 then
+    ExecuteCommand(CommandParams[0], 1);
 
-  if not FileExists('pjamas.json') then
+  MainRoutine;
+
+  if DoWritePackage then
   begin
-    ShowException(Exception.Create('not in a pjamas package'));
-    Terminate;
-    Exit;
+    writeln(RootPackage.SaveToJSON);
   end;
-
-  RootPackage.LoadFromFile('.', 'pjamas.json');
-
-  if not DirectoryExists(RootPackage.DownloadedPackagesPath) then
-    Mkdir(RootPackage.DownloadedPackagesPath);
-
-  if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.DownloadedPackagesPath)+DownloadDirName) then
-    Mkdir(IncludeTrailingPathDelimiter(RootPackage.DownloadedPackagesPath)+DownloadDirName);
-
-  if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.DownloadedPackagesPath)+InstalledDirName) then
-    Mkdir(IncludeTrailingPathDelimiter(RootPackage.DownloadedPackagesPath)+InstalledDirName);
-
-  PackageQueue.Enqueue(RootPackage);
-  repeat
-    CurrentPackage := PackageQueue.Dequeue;
-    CurrentPackage.DownloadDependencies;
-    for UnitDir in CurrentPackage.UnitsDirectories do
-    begin
-      UnitDirs.Add(UnitDir);
-    end;
-  until PackageQueue.Count = 0;
 
   for UnitDir in UnitDirs do
   begin
@@ -585,7 +704,7 @@ begin
   { add your help code here }
   writeln('Usage: ', ExeName, ' [-', ShortOpts, '] [Commands]');
 
-  for optIndex := low(ShortOpts) to high(ShortOpts) do
+  for optIndex := Low(ShortOpts) to High(ShortOpts) do
     writeln('  -', ShortOpts[1+optIndex], ' --', LongOpts[optIndex], ' => ', Descriptions[optIndex]);
 
   writeln('Commands: ');
