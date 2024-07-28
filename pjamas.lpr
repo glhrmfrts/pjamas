@@ -66,6 +66,7 @@ type
     procedure LoadFromJSON(const JSONString: string);
     procedure LoadFromFile(const ADir, AFilename: string);
     procedure DownloadDependencies;
+    procedure RefreshDependenciesObjects;
     procedure MakeUpData(const ADir: string);
     function SaveToJSON(): string;
     procedure SaveToFile(const AFilename: string);
@@ -319,14 +320,6 @@ var
     result := compilerPas2JS;
   end;
 
-  procedure ParseDependency(dName, dVersion: string);
-  begin
-    if AnsiPos('github.com', dName) <> 0 then
-      DependencyObjects.Add(dName, TGithubDependency.Create(dName, dVersion))
-    else
-      raise Exception.CreateFmt('unknown dependency type: %s', [dName]);
-  end;
-
 begin
   JSONData := GetJSON(JSONString);
   try
@@ -355,11 +348,6 @@ begin
         for I := 0 to DepsObject.Count - 1 do
         begin
           DependencyDict.Add(DepsObject.Names[I], DepsObject.Items[I].AsString);
-        end;
-
-        for Key in DependencyDict.Keys do
-        begin
-          ParseDependency(Key, DependencyDict[Key]);
         end;
       end;
     end
@@ -450,6 +438,26 @@ begin
 end;
 
 
+procedure TPackage.RefreshDependenciesObjects;
+var
+  Key: String;
+
+  procedure ParseDependency(dName, dVersion: string);
+  begin
+    if AnsiPos('github.com', dName) <> 0 then
+      DependencyObjects.Add(dName, TGithubDependency.Create(dName, dVersion))
+    else
+      raise Exception.CreateFmt('unknown dependency type: %s', [dName]);
+  end;
+
+begin
+  for Key in DependencyDict.Keys do
+  begin
+    ParseDependency(Key, DependencyDict[Key]);
+  end;
+end;
+
+
 procedure TPackage.DownloadDependencies;
 var
   Dep: specialize TPair<string, TDependency>;
@@ -493,6 +501,10 @@ begin
         Pkg.MakeUpData(PkgPath);
 
       PackageQueue.Enqueue(Pkg);
+    end else
+    begin
+      if not FileExists(FileDest) then
+        writeln('warning: dependency ', Dep.Value.Name, ' is not downloaded, use "pjamas get" to download');
     end;
   end;
 end;
@@ -527,6 +539,7 @@ var
   Dep: string;
   Version: string;
 begin
+  DoDownloads := true;
   if paramIndex <= High(CommandParams) then
   begin
     Dep := CommandParams[paramIndex];
@@ -537,7 +550,6 @@ begin
 
     RootPackage.DependencyDict.AddOrSetValue(Dep, Version);
 
-    DoDownloads := true;
     DoWritePackage := true;
   end;
 end;
@@ -608,6 +620,8 @@ begin
 
   if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.DownloadedPackagesPath)+InstalledDirName) then
     Mkdir(IncludeTrailingPathDelimiter(RootPackage.DownloadedPackagesPath)+InstalledDirName);
+
+  RootPackage.RefreshDependenciesObjects;
 
   PackageQueue.Enqueue(RootPackage);
   repeat
