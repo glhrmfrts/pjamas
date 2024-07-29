@@ -10,7 +10,8 @@ uses
   Generics.Collections,
   fphttpclient, opensslsockets,
   fpjson, jsonparser,
-  paszlib, zipper
+  paszlib, zipper,
+  JSONPrettyPrint
   { you can add units after this };
 
 type
@@ -133,6 +134,7 @@ var
   CommandParams: TStringArray;
   DoDownloads: boolean;
   DoWritePackage: boolean;
+  DoEchoUnits: boolean;
   ForceDownload: boolean;
 
 
@@ -330,7 +332,7 @@ begin
         Name := JSONObject.Get('Name', '');
       if JSONObject.Find('Version', jtString) <> nil then
         Version := JSONObject.Get('Version', '');
-      if JSONObject.Find('Version', jtString) <> nil then
+      if JSONObject.Find('Compiler', jtString) <> nil then
         Compiler := ParseCompiler(JSONObject.Get('Compiler', ''));
       if JSONObject.Find('DownloadedPackagesPath', jtString) <> nil then
         DownloadedPackagesPath := JSONObject.Get('DownloadedPackagesPath', '');
@@ -399,7 +401,8 @@ begin
     for DepPair in DependencyDict do DepsObject.Add(DepPair.Key, DepPair.Value);
     JSONObject.Add('Dependencies', DepsObject);
 
-    Result := JSONObject.AsJSON;
+    Result := ToPrettyJSON(JSONObject);
+    writeln(Result);
   finally
     JSONObject.Free;
   end
@@ -407,8 +410,17 @@ end;
 
 
 procedure TPackage.SaveToFile(const AFilename: string);
+var
+  FileStream: TFileStream;
+  Bytes: TBytes;
 begin
-
+  FileStream := TFileStream.Create(AFilename, fmCreate);
+  try
+    Bytes := TEncoding.UTF8.GetBytes(SaveToJSON);
+    FileStream.Write(Bytes[0], Length(Bytes));
+  finally
+    FileStream.Free;
+  end;
 end;
 
 
@@ -577,6 +589,7 @@ procedure TPjamasApplication.CmdUnits(paramIndex: integer);
 begin
   DoDownloads := false;
   DoWritePackage := false;
+  DoEchoUnits := true;
 end;
 
 
@@ -621,16 +634,13 @@ begin
   if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.DownloadedPackagesPath)+InstalledDirName) then
     Mkdir(IncludeTrailingPathDelimiter(RootPackage.DownloadedPackagesPath)+InstalledDirName);
 
-  RootPackage.RefreshDependenciesObjects;
-
   PackageQueue.Enqueue(RootPackage);
   repeat
     CurrentPackage := PackageQueue.Dequeue;
+    CurrentPackage.RefreshDependenciesObjects;
     CurrentPackage.DownloadDependencies;
     for UnitDir in CurrentPackage.UnitsDirectories do
-    begin
       UnitDirs.Add(UnitDir);
-    end;
   until PackageQueue.Count = 0;
 end;
 
@@ -640,10 +650,21 @@ var
   ErrorMsg: String;
   UnitDir: string;
 begin
-  //AddCommand(['build'], 'Build the Pas2JS project', @CmdBuild);
-  AddCommand(['get'], 'Add dependency to project', @CmdGet);
-  AddCommand(['installed'], 'List installed dependencies', @CmdInstalled);
-  AddCommand(['remove'], 'Remove dependency from project', @CmdRemove);
+  AddCommand(
+    ['get'],
+    'Add dependency to project',
+    @CmdGet
+  );
+  AddCommand(
+    ['installed'],
+    'List installed dependencies',
+    @CmdInstalled
+  );
+  AddCommand(
+    ['remove'],
+    'Remove dependency from project',
+    @CmdRemove
+  );
   AddCommand(
     ['units'],
     'Return units directories used by this project (this string should be fed into pas2js options)',
@@ -682,14 +703,17 @@ begin
 
   if DoWritePackage then
   begin
-    writeln(RootPackage.SaveToJSON);
+    RootPackage.SaveToFile('pjamas.json');
   end;
 
-  for UnitDir in UnitDirs do
+  if DoEchoUnits then
   begin
-    write('-Fu', UnitDir, ' ');
+    for UnitDir in UnitDirs do
+    begin
+      write('-Fu', UnitDir, ' ');
+    end;
+    writeln('');
   end;
-  writeln('');
 
   // stop program loop
   Terminate;
@@ -699,7 +723,7 @@ end;
 constructor TPjamasApplication.Create(TheOwner: TComponent);
 begin
   inherited Create(TheOwner);
-  StopOnException:=True;
+  StopOnException := True;
   commands := TCommandDict.create;
 end;
 
@@ -726,6 +750,7 @@ begin
   for pair in commands do
     writeln('  ', pair.key, ' - ', pair.value.description);
 end;
+
 
 begin
   Application:=TPjamasApplication.Create(nil);

@@ -3,5 +3,6 @@
 *.dll
 *.lib
 *.a
+*.ppu
 node_modules
 pjamas-packages

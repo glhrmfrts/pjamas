@@ -1,13 +1,15 @@
 {
   "Name": "test-project",
-  "Compiler": "pas2js",
-  "Description": "A test project for pjamas",
-  "Author": "Guilherme Nemeth <guilherme.nemeth@gmail.com>",
-  "License": "ISC",
+  "Version": "",
+  "Compiler": "Pas2JS",
   "DownloadedPackagesPath": "pjamas-packages",
-  "UnitsDirectories": ["src"],
+  "UnitsDirectories": [
+    "src"
+  ],
   "Dependencies": {
-    "github.com/glhrmfrts/wetween": "master",
-    "github.com/graemeg/fptest": "master"
+    "github.com/glhrmfrts/squirl": "master",
+    "github.com/glhrmfrts/threegl": "master",
+    "github.com/graemeg/fptest": "master",
+    "github.com/glhrmfrts/wetween": "master"
   }
 }
