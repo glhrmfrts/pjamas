@@ -215,11 +215,12 @@ end;
 
 function ReadFileToString(const FileName: string): string;
 var
-  FileStream: TFileStream;
+  FileStream: TFileStream = nil;
   StringStream: TStringStream;
+  e: Exception;
 begin
-  FileStream := TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite);
   try
+    FileStream := TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite);
     StringStream := TStringStream.Create('');
     try
       StringStream.CopyFrom(FileStream, FileStream.Size);
@@ -227,9 +228,10 @@ begin
     finally
       StringStream.Free;
     end;
-  finally
-    FileStream.Free;
+  except
+    Result := ''
   end;
+  if FileStream <> nil then FileStream.Free;
 end;
 
 
@@ -395,8 +397,11 @@ end;
 
 
 procedure TPackage.LoadFromFile(const ADir, AFilename: string);
+var
+  Contents: string;
 begin
-  LoadFromJSON(ReadFileToString(AFilename));
+  Contents := ReadFileToString(AFilename);
+  if Length(Contents) > 0 then LoadFromJSON(Contents);
   Path := ADir;
   Filename := AFilename;
 end;
@@ -740,6 +745,7 @@ begin
   { add your program here }
 
   Options.ForceDownload := HasOption('f', 'force-download');
+  Options.AllowCreate := HasOption('c', 'create');
 
   LoadRootProject;
 

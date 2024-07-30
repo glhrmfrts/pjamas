@@ -1,0 +1,12 @@
+{
+  "Name": "",
+  "Version": "",
+  "Compiler": "Pas2JS",
+  "PackagesDir": "pjamas-packages",
+  "UnitsDirs": [
+
+  ],
+  "Dependencies": {
+    "github.com/glhrmfrts/wetween": "master"
+  }
+}
