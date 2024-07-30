@@ -1,0 +1,19 @@
+{
+  "PackagesDir": "../pjamas-packages",
+  "UnitsDirs": [
+    "."
+  ],
+  "Dependencies": {
+    "github.com/PascalGameDevelopment/SDL2-for-Pascal": "v2.2-stable",
+    "github.com/glhrmfrts/wetween": "master"
+  },
+  "Patches": {
+    "github.com/PascalGameDevelopment/SDL2-for-Pascal": {
+      "UnitsDirs": ["units"]
+    }
+  },
+  "$comments": [
+    "To build this project you need: FPC v3.2.2, Pjamas 0.1.4",
+    "After installation, run: pjamas build"
+  ]
+}

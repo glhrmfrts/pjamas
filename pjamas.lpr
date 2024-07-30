@@ -20,6 +20,7 @@ type
     Name: string;
     CleanName: string;
     Version: string;
+    PackagePath: string;
 
     procedure BuildDownloadURL(var URL, DesiredFileName, DesiredExtension: string); virtual; abstract;
     procedure Install(const Path, InstallDir: string); virtual; abstract;
@@ -54,13 +55,16 @@ type
     Name: string;
     Version: string;
     Compiler: TCompiler;
-    DownloadedPackagesPath: string;
-    UnitsDirectories: TStringList;
+    PackagesDir: string;
+    UnitsDirs: TStringList;
     Path: string;
     Filename: string;
     DependencyDict: TDependencyDict;
     DependencyObjects: TDependencyObjectDict;
     DependencyPackages: TDependencyPackageDict;
+    UsedBy: TPackage;
+    Dependency: TDependency;
+    Patches: TDependencyPackageDict;
 
     constructor Create;
 
@@ -90,6 +94,16 @@ type
     procedure HandleRedirect(Sender: TObject; const ASrc: string; var Redirection: string);
   end;
 
+  { TPjamasOptions }
+
+  TPjamasOptions = record
+    AllowCreate: boolean;
+    DoDownloads: boolean;
+    DoWritePackage: boolean;
+    DoEchoUnits: boolean;
+    ForceDownload: boolean;
+  end;
+
   { TPjamasApplication }
 
   TPjamasApplication = class(TCustomApplication)
@@ -115,14 +129,17 @@ type
 
 
 const
-  ShortOpts = 'hf';
-  LongOpts : array of string = ('help', 'force-download');
+  ShortOpts = 'hfc';
+  LongOpts : array of string = ('help', 'force-download', 'create');
   Descriptions : array of string = (
     'Display help',
-    'Download dependencies globally'
+    'Force download of dependencies again',
+    'Allow pjamas to create a pjamas.json if one was not found'
   );
   DownloadDirName = 'downloads';
   InstalledDirName = 'installed';
+  PjamasFile = 'pjamas.json';
+  DefaultPackageDir = 'pjamas-packages';
 
 
 var
@@ -132,10 +149,7 @@ var
   PackageQueue: TPackageQueue;
   UnitDirs: TStringList;
   CommandParams: TStringArray;
-  DoDownloads: boolean;
-  DoWritePackage: boolean;
-  DoEchoUnits: boolean;
-  ForceDownload: boolean;
+  Options: TPjamasOptions;
 
 
 procedure TRedirectHandler.HandleRedirect(Sender: TObject; const ASrc: string; var Redirection: string);
@@ -151,7 +165,7 @@ end;
 function DownloadDestination(const DepFileName, DepExt: string): string;
 begin
   Result := Format('%s/%s/%s.%s', [
-    RootPackage.DownloadedPackagesPath,
+    RootPackage.PackagesDir,
     DownloadDirName,
     DepFileName,
     DepExt
@@ -162,7 +176,7 @@ end;
 function InstallDestination(const DepFileName: string): string;
 begin
   Result := Format('%s/%s/%s', [
-    RootPackage.DownloadedPackagesPath,
+    RootPackage.PackagesDir,
     InstalledDirName,
     DepFileName
   ]);
@@ -292,6 +306,7 @@ begin
     exit(false);
 
   Path := Format('%s/%s', [InstallDest, MainDir]);
+  PackagePath := Path;
   exit(true);
 end;
 
@@ -305,7 +320,8 @@ begin
   DependencyDict := TDependencyDict.Create;
   DependencyObjects := TDependencyObjectDict.Create;
   DependencyPackages := TDependencyPackageDict.Create;
-  UnitsDirectories := TStringList.Create;
+  UnitsDirs := TStringList.Create;
+  Patches := TDependencyPackageDict.Create;
 end;
 
 
@@ -316,6 +332,7 @@ var
   JSONArray: TJSONArray;
   I: Integer;
   Key: string;
+  Patch: TPackage;
 
   function ParseCompiler(const s: string): TCompiler;
   begin
@@ -334,22 +351,38 @@ begin
         Version := JSONObject.Get('Version', '');
       if JSONObject.Find('Compiler', jtString) <> nil then
         Compiler := ParseCompiler(JSONObject.Get('Compiler', ''));
-      if JSONObject.Find('DownloadedPackagesPath', jtString) <> nil then
-        DownloadedPackagesPath := JSONObject.Get('DownloadedPackagesPath', '');
-      if JSONObject.Find('UnitsDirectories', jtArray) <> nil then
+      if JSONObject.Find('PackagesDir', jtString) <> nil then
+        PackagesDir := JSONObject.Get('PackagesDir', '');
+
+      if Length(PackagesDir) = 0 then
+        PackagesDir := 'pjamas-packages';
+
+      if JSONObject.Find('UnitsDirs', jtArray) <> nil then
       begin
-        JSONArray := JSONObject.Arrays['UnitsDirectories'];
+        JSONArray := JSONObject.Arrays['UnitsDirs'];
         for I := 0 to JSONArray.Count - 1 do
         begin
-          UnitsDirectories.Add(JSONArray.Strings[I]);
+          UnitsDirs.Add(JSONArray.Strings[I]);
         end;
       end;
+
       if JSONObject.Find('Dependencies', jtObject) <> nil then
       begin
         DepsObject := TJSONObject(JSONObject.Objects['Dependencies']);
         for I := 0 to DepsObject.Count - 1 do
         begin
           DependencyDict.Add(DepsObject.Names[I], DepsObject.Items[I].AsString);
+        end;
+      end;
+
+      if JSONObject.Find('Patches', jtObject) <> nil then
+      begin
+        DepsObject := TJSONObject(JSONObject.Objects['Patches']);
+        for I := 0 to DepsObject.Count - 1 do
+        begin
+          Patch := TPackage.Create;
+          Patch.LoadFromJSON(DepsObject.Items[I].AsJSON);
+          Patches.Add(DepsObject.Names[I], Patch);
         end;
       end;
     end
@@ -391,11 +424,11 @@ begin
     JSONObject.Add('Name', Name);
     JSONObject.Add('Version', Version);
     JSONObject.Add('Compiler', CompilerToString(Compiler));
-    JSONObject.Add('DownloadedPackagesPath', DownloadedPackagesPath);
+    JSONObject.Add('PackagesDir', PackagesDir);
 
     JSONArray := TJSONArray.Create;
-    for I:=0 to UnitsDirectories.Count - 1 do JSONArray.Add(UnitsDirectories[I]);
-    JSONObject.Add('UnitsDirectories', JSONArray);
+    for I:=0 to UnitsDirs.Count - 1 do JSONArray.Add(UnitsDirs[I]);
+    JSONObject.Add('UnitsDirs', JSONArray);
 
     DepsObject := TJSONObject.Create;
     for DepPair in DependencyDict do DepsObject.Add(DepPair.Key, DepPair.Value);
@@ -428,8 +461,18 @@ procedure TPackage.MakeUpData(const ADir: string);
 var
   Rec: TSearchRec;
   It: integer;
+  PatchPkg: TPackage;
+  UnitDir: string;
 begin
   Path := ADir;
+
+  if UsedBy <> nil then
+  begin
+    if UsedBy.Patches.TryGetValue(Dependency.Name, PatchPkg) then
+      for UnitDir in PatchPkg.UnitsDirs do
+        UnitsDirs.Add(Dependency.PackagePath + '/' + UnitDir);
+  end;
+
   It := FindFirst(IncludeTrailingPathDelimiter(Path) + '*', faAnyFile, Rec);
   try
     while It = 0 do
@@ -438,7 +481,7 @@ begin
       begin
         if EndsText('.pas', Rec.Name) then
         begin
-          UnitsDirectories.Add(Path);
+          UnitsDirs.Add(Path);
           break;
         end;
       end;
@@ -489,14 +532,14 @@ begin
     FileDest := DownloadDestination(DesiredFileName, DesiredExtension);
     InstallDest := InstallDestination(DesiredFileName);
 
-    if DoDownloads then
+    if Options.DoDownloads then
     begin
-      if ForceDownload or (not FileExists(FileDest)) then
+      if Options.ForceDownload or (not FileExists(FileDest)) then
       begin
         DownloadFile(url, FileDest);
       end;
 
-      if ForceDownload or (not DirectoryExists(InstallDest)) then
+      if Options.ForceDownload or (not DirectoryExists(InstallDest)) then
       begin
         Dep.Value.Install(FileDest, InstallDest);
       end;
@@ -504,8 +547,10 @@ begin
 
     if Dep.Value.GetPackagePath(PkgPath) then
     begin
-      PkgFile := Format('%s/pjamas.json', [PkgPath]);
+      PkgFile := Format('%s/%s', [PkgPath, PjamasFile]);
       Pkg := TPackage.Create;
+      Pkg.UsedBy := Self;
+      Pkg.Dependency := Dep.Value;
 
       if FileExists(PkgFile) then
         Pkg.LoadFromFile(PkgPath, PkgFile)
@@ -551,7 +596,7 @@ var
   Dep: string;
   Version: string;
 begin
-  DoDownloads := true;
+  Options.DoDownloads := true;
   if paramIndex <= High(CommandParams) then
   begin
     Dep := CommandParams[paramIndex];
@@ -562,7 +607,7 @@ begin
 
     RootPackage.DependencyDict.AddOrSetValue(Dep, Version);
 
-    DoWritePackage := true;
+    Options.DoWritePackage := true;
   end;
 end;
 
@@ -580,16 +625,16 @@ begin
   begin
     Dep := CommandParams[paramIndex];
     RootPackage.DependencyDict.Remove(Dep);
-    DoWritePackage := true;
+    Options.DoWritePackage := true;
   end;
 end;
 
 
 procedure TPjamasApplication.CmdUnits(paramIndex: integer);
 begin
-  DoDownloads := false;
-  DoWritePackage := false;
-  DoEchoUnits := true;
+  Options.DoDownloads := false;
+  Options.DoWritePackage := false;
+  Options.DoEchoUnits := true;
 end;
 
 
@@ -607,7 +652,7 @@ end;
 procedure TPjamasApplication.LoadRootProject;
 begin
   RootPackage := TPackage.Create;
-  RootPackage.LoadFromFile('.', 'pjamas.json');
+  RootPackage.LoadFromFile('.', PjamasFile);
 end;
 
 
@@ -618,28 +663,31 @@ begin
   UnitDirs := TStringList.Create;
   PackageQueue := TPackageQueue.Create;
 
-  if not FileExists('pjamas.json') then
+  if not FileExists(PjamasFile) then
   begin
-    ShowException(Exception.Create('not in a pjamas package'));
-    Terminate;
-    Exit;
+    if not Options.AllowCreate then
+    begin
+      ShowException(Exception.Create('not in a pjamas package'));
+      Terminate;
+      Exit;
+    end;
   end;
 
-  if not DirectoryExists(RootPackage.DownloadedPackagesPath) then
-    Mkdir(RootPackage.DownloadedPackagesPath);
+  if not DirectoryExists(RootPackage.PackagesDir) then
+    Mkdir(RootPackage.PackagesDir);
 
-  if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.DownloadedPackagesPath)+DownloadDirName) then
-    Mkdir(IncludeTrailingPathDelimiter(RootPackage.DownloadedPackagesPath)+DownloadDirName);
+  if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.PackagesDir)+DownloadDirName) then
+    Mkdir(IncludeTrailingPathDelimiter(RootPackage.PackagesDir)+DownloadDirName);
 
-  if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.DownloadedPackagesPath)+InstalledDirName) then
-    Mkdir(IncludeTrailingPathDelimiter(RootPackage.DownloadedPackagesPath)+InstalledDirName);
+  if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.PackagesDir)+InstalledDirName) then
+    Mkdir(IncludeTrailingPathDelimiter(RootPackage.PackagesDir)+InstalledDirName);
 
   PackageQueue.Enqueue(RootPackage);
   repeat
     CurrentPackage := PackageQueue.Dequeue;
     CurrentPackage.RefreshDependenciesObjects;
     CurrentPackage.DownloadDependencies;
-    for UnitDir in CurrentPackage.UnitsDirectories do
+    for UnitDir in CurrentPackage.UnitsDirs do
       UnitDirs.Add(UnitDir);
   until PackageQueue.Count = 0;
 end;
@@ -667,7 +715,7 @@ begin
   );
   AddCommand(
     ['units'],
-    'Return units directories used by this project (this string should be fed into pas2js options)',
+    'Return units directories used by this project (this string should be fed into fpc/pas2js options)',
     @CmdUnits
   );
 
@@ -691,7 +739,7 @@ begin
 
   { add your program here }
 
-  ForceDownload := HasOption('f', 'force-download');
+  Options.ForceDownload := HasOption('f', 'force-download');
 
   LoadRootProject;
 
@@ -701,12 +749,12 @@ begin
 
   MainRoutine;
 
-  if DoWritePackage then
+  if Options.DoWritePackage then
   begin
-    RootPackage.SaveToFile('pjamas.json');
+    RootPackage.SaveToFile(PjamasFile);
   end;
 
-  if DoEchoUnits then
+  if Options.DoEchoUnits then
   begin
     for UnitDir in UnitDirs do
     begin
