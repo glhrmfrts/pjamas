@@ -4,6 +4,8 @@
 
 This is a simple non-official package manager focused on Pas2JS, the Pascal-to-JavaScript transpiler. It just downloads the dependencies you want and turn them into a series of `-Fu` flags for the Pas2JS compiler.
 
+**This is a work in progress.**
+
 ## How to use
 
 Let's say we have a simple program that wants to use this code: https://github.com/glhrmfrts/wetween.
