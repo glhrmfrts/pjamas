@@ -1,7 +1,7 @@
 {
-  "Compiler": "Pas2JS",
-  "CompilerOptions": "-Jc -Tbrowser",
   "PackagesDir": "pjamas-packages",
+  "Compiler": "Pas2JS",
+  "CompilerOptions": "-Jc -Jirtl.js",
   "UnitsDirs": [
     "recursive:pjamas-packages/installed"
   ],

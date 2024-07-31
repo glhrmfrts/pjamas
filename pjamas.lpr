@@ -558,13 +558,32 @@ var
     end;
   end;
 
+  function JoinStrings(ls: TStringList; sep: string): string;
+  var
+    I: integer;
+    Item: string;
+  begin
+    Result := '';
+    for I := 0 to ls.Count - 1 do
+    begin
+      if Length(ls[I]) > 0 then
+      begin
+        Result := Result + ls[I];
+        if I < ls.Count - 1 then Result := Result + sep;
+      end;
+    end;
+  end;
+
 begin
   JSONObject := TJSONObject.Create;
   try
-    JSONObject.Add('Name', Name);
-    JSONObject.Add('Version', Version);
+    if Length(Name) > 0 then JSONObject.Add('Name', Name);
+    if Length(Version) > 0 then JSONObject.Add('Version', Version);
+    if Length(PackagesDir) > 0 then JSONObject.Add('PackagesDir', PackagesDir);
+
     JSONObject.Add('Compiler', CompilerToString(Compiler));
-    JSONObject.Add('PackagesDir', PackagesDir);
+
+    if CompilerOptions.Count > 0 then JSONObject.Add('CompilerOptions', JoinStrings(CompilerOptions, ' '));
 
     JSONArray := TJSONArray.Create;
     for I:=0 to UnitsDirs.Count - 1 do JSONArray.Add(UnitsDirs[I]);
