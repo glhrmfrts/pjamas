@@ -22,19 +22,13 @@ end.
 We can just use the `get` command inside our project root:
 
 ```bash
-pjamas get github.com/glhrmfrts/wetween
+pjamas get github.com/glhrmfrts/wetween --create
 ```
 
 And to compile:
 
 ```bash
 pas2js -Jc -Jirtl.js `pjamas units` myprogram.pas
-```
-
-Or alternatively, pjamas can invoke pas2js for you with the `build` command (pas2js must be on the PATH):
-
-```bash
-pjamas build myprogram.pas
 ```
 
 Use `-h` or `--help` for more commands.
@@ -59,10 +53,10 @@ Which will produce a **pjamas** binary.
 The scope of this project shall remain small, and help is needed:
 
 - [ ] Documentation
-- [ ] Cache the output to a file
+- [ ] Cache the output to a file (to use pjamas as a one-time tool)
 - [ ] Handle other type of dependencies than github repositories
 - [ ] Handle private repositories
-- [ ] A simple way to list known packages (Name + URL + Description)
+- [ ] Have an index of known packages (Name + URL + Description)
 
 ## LICENSE
 
