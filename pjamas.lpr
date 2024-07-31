@@ -122,13 +122,23 @@ type
     procedure AddCommand(names: TStringArray; description: string; proc: TCommandProc);
     procedure CmdBuild(paramIndex: integer);
     procedure CmdGet(paramIndex: integer);
-    procedure CmdInstalled(paramIndex: integer);
+    procedure CmdHelpJSON(paramIndex: integer);
     procedure CmdRemove(paramIndex: integer);
     procedure CmdUnits(paramIndex: integer);
     procedure ExecuteCommand(cmd: string; paramIndex: integer);
     procedure LoadRootProject;
     procedure MainRoutine;
   end;
+
+  TDocJSONField = record
+    Name: string;
+    Typ: string;
+    Desc: string;
+    Note: string;
+    Required: boolean;
+  end;
+
+  TDocJSONFieldArray = array of TDocJSONField;
 
 
 const
@@ -145,6 +155,51 @@ const
   PjamasFile = 'pjamas.json';
   DefaultPackageDir = 'pjamas-packages';
   PascalCodeExtensions : array of string = ('.pas', '.pp');
+  DocJSONFields : TDocJSONFieldArray = (
+    (
+      Name: 'Name';
+      Typ: 'string';
+      Desc: 'Name of the project';
+    ),
+    (
+      Name: 'Version';
+      Typ: 'string';
+      Desc: 'Version of this project (use semver.org)';
+    ),
+    (
+      Name: 'Compiler';
+      Typ: 'string';
+      Desc: 'Compiler to use ("FPC" or "Pas2JS")';
+    ),
+    (
+      Name: 'CompilerOptions';
+      Typ: 'string';
+      Desc: 'Space-separated compiler flags and options';
+    ),
+    (
+      Name: 'PackagesDir';
+      Typ: 'string';
+      Desc: 'Where to store the downloaded packages (default: pjamas-packages)';
+    ),
+    (
+      Name: 'UnitsDir';
+      Typ: 'array of string';
+      Desc: 'Directories where Pascal source units are located for this project';
+      Note: 'Prefix with "recursive:" to recursively search for units';
+    ),
+    (
+      Name: 'Dependencies';
+      Typ: 'object (string => string)';
+      Desc: 'An object where each key is a Dependency and each value is its version';
+      Note: 'For git repositories this is usually a tag name. Branches other than "main" or "master" need "branch:" prefix. Commits need "commit:" prefix.';
+    ),
+    (
+      Name: 'Patches';
+      Typ: 'object (string => Package)';
+      Desc: 'Add entries to this object to patch any dependency package with additional properties';
+      Note: 'This is useful for providing pjamas options for packages that do not include pjamas.json';
+    )
+  );
 
 
 var
@@ -674,8 +729,22 @@ begin
 end;
 
 
-procedure TPjamasApplication.CmdInstalled(paramIndex: integer);
+procedure TPjamasApplication.CmdHelpJSON(paramIndex: integer);
+var
+  Field: TDocJSONField;
 begin
+  for Field in DocJSONFields do
+  begin
+    writeln('Name: ', Field.Name);
+    writeln('Type: ', Field.Typ);
+    writeln('Desc: ', Field.Desc);
+    if Length(Field.Note) > 0 then
+      writeln('Note: ', Field.Note);
+    if Field.Required then
+      writeln('Required: true');
+
+    writeln('');
+  end;
 end;
 
 
@@ -779,9 +848,9 @@ begin
     @CmdGet
   );
   AddCommand(
-    ['installed'],
-    'List installed dependencies',
-    @CmdInstalled
+    ['help-json'],
+    'Provide help for pjamas.json fields',
+    @CmdHelpJSON
   );
   AddCommand(
     ['remove'],
