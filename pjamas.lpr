@@ -103,6 +103,7 @@ type
     DoDownloads: boolean;
     DoWritePackage: boolean;
     DoEchoUnits: boolean;
+    DoEchoOptions: boolean;
     ForceDownload: boolean;
   end;
 
@@ -131,12 +132,13 @@ type
 
 
 const
-  ShortOpts = 'hfc';
-  LongOpts : array of string = ('help', 'force-download', 'create');
+  ShortOpts = 'hfco';
+  LongOpts : array of string = ('help', 'force-download', 'create', 'options');
   Descriptions : array of string = (
     'Display help',
     'Force download of dependencies again',
-    'Allow pjamas to create a pjamas.json if one was not found'
+    'Allow pjamas to create a pjamas.json if one was not found',
+    'When running "units", return compiler options as well'
   );
   DownloadDirName = 'downloads';
   InstalledDirName = 'installed';
@@ -153,6 +155,7 @@ var
   UnitDirs: TStringList;
   CommandParams: TStringArray;
   Options: TPjamasOptions;
+  CompilerOptions: TStringList;
 
 
 procedure TRedirectHandler.HandleRedirect(Sender: TObject; const ASrc: string; var Redirection: string);
@@ -718,7 +721,9 @@ end;
 procedure TPjamasApplication.MainRoutine;
 var
   UnitDir: string;
+  Opt: string;
 begin
+  CompilerOptions := TStringList.Create;
   UnitDirs := TStringList.Create;
   PackageQueue := TPackageQueue.Create;
 
@@ -746,10 +751,18 @@ begin
     CurrentPackage := PackageQueue.Dequeue;
     CurrentPackage.RefreshDependenciesObjects;
     CurrentPackage.DownloadDependencies;
+
     for UnitDir in CurrentPackage.UnitsDirs do
       UnitDirs.Add(UnitDir);
+
     for UnitDir in CurrentPackage.RecursiveUnitsDirs do
       AddRecursiveDir(UnitDir);
+
+    { Only allow compiler options from root package for now }
+    if CurrentPackage = RootPackage then
+      for Opt in CurrentPackage.CompilerOptions do
+        if Length(Opt) > 0 then
+          CompilerOptions.Add(Opt);
   until PackageQueue.Count = 0;
 end;
 
@@ -758,6 +771,7 @@ procedure TPjamasApplication.DoRun;
 var
   ErrorMsg: String;
   UnitDir: string;
+  Opt: string;
 begin
   AddCommand(
     ['get'],
@@ -802,6 +816,7 @@ begin
 
   Options.ForceDownload := HasOption('f', 'force-download');
   Options.AllowCreate := HasOption('c', 'create');
+  Options.DoEchoOptions := HasOption('o', 'options');
 
   LoadRootProject;
 
@@ -814,6 +829,15 @@ begin
   if Options.DoWritePackage then
   begin
     RootPackage.SaveToFile(PjamasFile);
+  end;
+
+  if Options.DoEchoOptions then
+  begin
+    for Opt in CompilerOptions do
+    begin
+      if Length(Opt) > 0 then
+        write(Opt, ' ');
+    end;
   end;
 
   if Options.DoEchoUnits then
