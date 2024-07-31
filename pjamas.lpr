@@ -55,8 +55,10 @@ type
     Name: string;
     Version: string;
     Compiler: TCompiler;
+    CompilerOptions: TStringList;
     PackagesDir: string;
     UnitsDirs: TStringList;
+    RecursiveUnitsDirs: TStringList;
     Path: string;
     Filename: string;
     DependencyDict: TDependencyDict;
@@ -77,8 +79,8 @@ type
     procedure SaveToFile(const AFilename: string);
   end;
 
-    //Dependencies: TDependency;
-    //LockedDependencies: TLockedDependency;
+  //Dependencies: TDependency;
+  //LockedDependencies: TLockedDependency;
 
   TCommandProc = procedure (paramIndex: integer) of object;
 
@@ -140,6 +142,7 @@ const
   InstalledDirName = 'installed';
   PjamasFile = 'pjamas.json';
   DefaultPackageDir = 'pjamas-packages';
+  PascalCodeExtensions : array of string = ('.pas', '.pp');
 
 
 var
@@ -251,6 +254,40 @@ begin
 end;
 
 
+procedure AddRecursiveDir(Dir: string);
+var
+  It: integer;
+  Res: TSearchRec;
+  AddThis: boolean = false;
+  Ext: string;
+  CodeExt: string;
+begin
+  It := FindFirst(IncludeTrailingPathDelimiter(Dir) + '*', faAnyFile, Res);
+  try
+    while It = 0 do
+    begin
+      if (Res.Name<>'.') and (Res.Name<>'..') then
+        if ((Res.Attr and faDirectory)<>0) then
+          AddRecursiveDir(ConcatPaths([Dir, Res.Name]))
+        else
+        begin
+          Ext := ExtractFileExt(Res.Name);
+          for CodeExt in PascalCodeExtensions do
+            if Ext = CodeExt then
+            begin
+              AddThis := true;
+              break;
+            end;
+        end;
+      It := FindNext(Res);
+    end;
+  finally
+    FindClose(Res);
+  end;
+  if AddThis then UnitDirs.Add(Dir);
+end;
+
+
 { TGithubDependency }
 
 
@@ -322,7 +359,9 @@ begin
   DependencyDict := TDependencyDict.Create;
   DependencyObjects := TDependencyObjectDict.Create;
   DependencyPackages := TDependencyPackageDict.Create;
+  CompilerOptions := TStringList.Create;
   UnitsDirs := TStringList.Create;
+  RecursiveUnitsDirs := TStringList.Create;
   Patches := TDependencyPackageDict.Create;
 end;
 
@@ -334,7 +373,10 @@ var
   JSONArray: TJSONArray;
   I: Integer;
   Key: string;
+  Dir: string;
   Patch: TPackage;
+  ReplaceFlags: TReplaceFlags;
+  ReplaceCount: integer = 0;
 
   function ParseCompiler(const s: string): TCompiler;
   begin
@@ -347,12 +389,19 @@ begin
     if JSONData.JSONType = jtObject then
     begin
       JSONObject := TJSONObject(JSONData);
+
       if JSONObject.Find('Name', jtString) <> nil then
         Name := JSONObject.Get('Name', '');
+
       if JSONObject.Find('Version', jtString) <> nil then
         Version := JSONObject.Get('Version', '');
+
       if JSONObject.Find('Compiler', jtString) <> nil then
         Compiler := ParseCompiler(JSONObject.Get('Compiler', ''));
+
+      if JSONObject.Find('CompilerOptions', jtString) <> nil then
+        CompilerOptions.SetStrings(SplitString(JSONObject.Get('CompilerOptions', ''), ' '));
+
       if JSONObject.Find('PackagesDir', jtString) <> nil then
         PackagesDir := JSONObject.Get('PackagesDir', '');
 
@@ -364,7 +413,11 @@ begin
         JSONArray := JSONObject.Arrays['UnitsDirs'];
         for I := 0 to JSONArray.Count - 1 do
         begin
-          UnitsDirs.Add(JSONArray.Strings[I]);
+          Dir := JSONArray.Strings[I];
+          if StartsStr('recursive:', Dir) then
+            RecursiveUnitsDirs.Add(StringReplace(Dir, 'recursive:', '', ReplaceFlags, ReplaceCount))
+          else
+            UnitsDirs.Add(JSONArray.Strings[I]);
         end;
       end;
 
@@ -433,6 +486,7 @@ begin
 
     JSONArray := TJSONArray.Create;
     for I:=0 to UnitsDirs.Count - 1 do JSONArray.Add(UnitsDirs[I]);
+    for I:=0 to RecursiveUnitsDirs.Count - 1 do JSONArray.Add('recursive:'+RecursiveUnitsDirs[I]);
     JSONObject.Add('UnitsDirs', JSONArray);
 
     DepsObject := TJSONObject.Create;
@@ -694,6 +748,8 @@ begin
     CurrentPackage.DownloadDependencies;
     for UnitDir in CurrentPackage.UnitsDirs do
       UnitDirs.Add(UnitDir);
+    for UnitDir in CurrentPackage.RecursiveUnitsDirs do
+      AddRecursiveDir(UnitDir);
   until PackageQueue.Count = 0;
 end;
 

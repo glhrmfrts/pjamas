@@ -1,10 +1,9 @@
 {
-  "Name": "",
-  "Version": "",
   "Compiler": "Pas2JS",
+  "CompilerOptions": "-Jc    -Tbrowser",
   "PackagesDir": "pjamas-packages",
   "UnitsDirs": [
-
+    "recursive:pjamas-packages/installed"
   ],
   "Dependencies": {
     "github.com/glhrmfrts/wetween": "master"
