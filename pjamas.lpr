@@ -576,7 +576,6 @@ begin
     JSONObject.Add('Dependencies', DepsObject);
 
     Result := ToPrettyJSON(JSONObject);
-    writeln(Result);
   finally
     JSONObject.Free;
   end

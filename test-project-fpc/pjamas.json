@@ -1,0 +1,13 @@
+{
+  "Name": "",
+  "Version": "",
+  "Compiler": "Pas2JS",
+  "PackagesDir": "../pjamas-packages",
+  "UnitsDirs": [
+    "."
+  ],
+  "Dependencies": {
+    "github.com/PascalGameDevelopment/SDL2-for-Pascal": "v2.2-stable",
+    "github.com/glhrmfrts/wetween": "master"
+  }
+}

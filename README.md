@@ -33,6 +33,35 @@ pas2js -Jc -Jirtl.js `pjamas units` myprogram.pas
 
 Use `-h` or `--help` for more commands.
 
+### pjamas.json
+
+In the above example, this file will be created in the current directory as **pjamas.json**:
+
+```json
+{
+  "Compiler": "Pas2JS",
+  "PackagesDir": "../pjamas-packages",
+  "UnitsDirs": [
+  ],
+  "Dependencies": {
+    "github.com/glhrmfrts/wetween": "master"
+  }
+}
+```
+
+You can add other dependencies using `pjamas get` or by adding in the `Dependencies` JSON field.
+
+Use `pjamas help-json` for an extended documentation of each field in the JSON.
+
+**This file should be commited to version control.**
+
+### pjamas-packages
+
+When you download packages, pjamas will download and install them to a directory named `pjamas-packages` in your
+package directory. Dependencies that depends on other packages will also install them in this directory, and so on and so forth.
+
+**This directory should be ignored by version control.**
+
 ## How to build
 
 The only requirement is a standard installation of FPC and Lazarus, the versions used in the development are:
@@ -53,7 +82,7 @@ Which will produce a **pjamas** binary.
 The scope of this project shall remain small, and help is needed:
 
 - [ ] Documentation
-- [ ] Cache the output to a file (to use pjamas as a one-time tool)
+- [ ] Cache the output to a file (to use pjamas as a one-time-use tool)
 - [ ] Handle other type of dependencies than github repositories
 - [ ] Handle private repositories
 - [ ] Have an index of known packages (Name + URL + Description)
