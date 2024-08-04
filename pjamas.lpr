@@ -34,8 +34,7 @@ uses
   Generics.Collections,
   fphttpclient, opensslsockets,
   fpjson, jsonparser,
-  paszlib, zipper,
-  JSONPrettyPrint
+  paszlib, zipper
   { you can add units after this };
 
 type
@@ -549,6 +548,7 @@ var
   DepsObject: TJSONObject;
   DepPair: specialize TPair<string, string>;
   I: Integer;
+  FormatOptions: TFormatOptions;
 
   function CompilerToString(com: TCompiler): string;
   begin
@@ -594,7 +594,7 @@ begin
     for DepPair in DependencyDict do DepsObject.Add(DepPair.Key, DepPair.Value);
     JSONObject.Add('Dependencies', DepsObject);
 
-    Result := ToPrettyJSON(JSONObject);
+    Result := JSONObject.FormatJSON(FormatOptions, 2);
   finally
     JSONObject.Free;
   end
