@@ -42,7 +42,7 @@ In the above example, this file will be created in the current directory as **pj
 ```json
 {
   "Compiler": "Pas2JS",
-  "PackagesDir": "../pjamas-packages",
+  "PackagesDir": "pjamas-packages",
   "UnitsDirs": [
   ],
   "Dependencies": {
