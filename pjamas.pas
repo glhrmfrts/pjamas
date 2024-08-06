@@ -50,6 +50,8 @@ type
     function GetPackagePath(var Path: string): boolean; virtual; abstract;
   end;
 
+  { TGithubDependency - A public github repository }
+
   TGithubDependency = class (TDependency) public
     constructor Create(aName, aVersion: string);
     procedure BuildDownloadURL(var URL, DesiredFileName, DesiredExtension: string); override;
@@ -57,10 +59,14 @@ type
     function GetPackagePath(var Path: string): boolean; override;
   end;
 
-  TLockedDependency = record
-    Name: string;
-    ExactVersion: string;
-    LastURL: string;
+  { TLocalDependency - A local folder or zip archive }
+
+  TLocalDependency = class (TDependency) public
+    IsDirectory: boolean;
+    constructor Create(aName, aVersion: string);
+    procedure BuildDownloadURL(var URL, DesiredFileName, DesiredExtension: string); override;
+    procedure Install(const Path, InstallDir: string); override;
+    function GetPackagePath(var Path: string): boolean; override;
   end;
 
   TCompiler = (compilerPas2JS, compilerFPC);
@@ -80,8 +86,10 @@ type
     Compiler: TCompiler;
     CompilerOptions: TStringList;
     PackagesDir: string;
-    UnitsDirs: TStringList;
-    RecursiveUnitsDirs: TStringList;
+    UnitPath: TStringList;
+    RecursiveUnitPath: TStringList;
+    IncludePath: TStringList;
+    RecursiveIncludePath: TStringList;
     Path: string;
     Filename: string;
     DependencyDict: TDependencyDict;
@@ -205,7 +213,7 @@ const
       Desc: 'Where to store the downloaded packages (default: pjamas-packages)';
     ),
     (
-      Name: 'UnitsDir';
+      Name: 'UnitPath';
       Typ: 'array of string';
       Desc: 'Directories where Pascal source units are located for this project';
       Note: 'Prefix with "recursive:" to recursively search for units';
@@ -267,6 +275,55 @@ begin
 end;
 
 
+function CopyFile(const SrcFileName, DstFileName: String): Boolean;
+var
+  Src, Dst: File;
+  Buf: array of Byte;
+  ReadBytes: Int64;
+begin
+  Assign(Src, SrcFileName);
+{$PUSH}{$I-}
+  Reset(Src, 1);
+{$POP}
+  if IOResult <> 0 then
+    Exit(False);
+
+  Assign(Dst, DstFileName);
+{$PUSH}{$I-}
+  Rewrite(Dst, 1);
+{$POP}
+  if IOResult <> 0 then begin
+    Close(Src);
+    Exit(False);
+  end;
+
+  SetLength(Buf, 64 * 1024 * 1024);
+  while not Eof(Src) do begin
+{$PUSH}{$I-}
+    BlockRead(Src, Buf[0], Length(Buf), ReadBytes);
+{$POP}
+    if IOResult <> 0 then begin
+      Close(Src);
+      Close(Dst);
+      Exit(False);
+    end;
+
+{$PUSH}{$I-}
+    BlockWrite(Dst, Buf[0], ReadBytes);
+{$POP}
+    if IOResult <> 0 then begin
+      Close(Src);
+      Close(Dst);
+      Exit(False);
+    end;
+  end;
+
+  Close(Src);
+  Close(Dst);
+  Exit(True);
+end;
+
+
 procedure DownloadFile(const URL, Destination: string);
 var
   HTTPClient: TFPHTTPClient;
@@ -294,6 +351,21 @@ begin
     HTTPClient.Free;
     //RedirectHandler.Free;
   end;
+end;
+
+
+procedure DownloadOrCopyFile(const URL, Destination: string);
+var
+  Ext: string;
+begin
+  Ext := ExtractFileExt(Destination);
+  if AnsiPos('local:', URL) <> 0 then
+    if Ext = 'dir' then
+      exit
+    else
+      CopyFile(ReplaceStr(URL, 'local:', ''), Destination)
+  else
+    DownloadFile(URL, Destination);
 end;
 
 
@@ -369,6 +441,41 @@ begin
 end;
 
 
+procedure CopyDirRecursive(const SourceDir, TargetDir: string);
+var
+  SearchRec: TSearchRec;
+  SourcePath, TargetPath: string;
+begin
+  if not DirectoryExists(TargetDir) then
+    MkDir(TargetDir);
+
+  if FindFirst(SourceDir + PathDelim + '*', faAnyFile, SearchRec) = 0 then
+  begin
+    repeat
+      if (SearchRec.Name <> '.') and (SearchRec.Name <> '..') then
+      begin
+        SourcePath := SourceDir + PathDelim + SearchRec.Name;
+        TargetPath := TargetDir + PathDelim + SearchRec.Name;
+
+        if (SearchRec.Attr and faDirectory) <> 0 then
+        begin
+          // Recursively copy directories
+          CopyDirRecursive(SourcePath, TargetPath);
+        end
+        else
+        begin
+          // Copy files
+          if not CopyFile(SourcePath, TargetPath) then
+            Writeln('Failed to copy file: ', SourcePath);
+        end;
+      end;
+    until FindNext(SearchRec) <> 0;
+
+    FindClose(SearchRec);
+  end;
+end;
+
+
 { TGithubDependency }
 
 
@@ -431,6 +538,61 @@ begin
 end;
 
 
+{ TLocalDependency }
+
+
+constructor TLocalDependency.Create(aName, aVersion: string);
+begin
+  Name := aName;
+  Version := aVersion;
+  CleanName := ReplaceStr(aName, '/', '-');
+  CleanName := ReplaceStr(CleanName, ':', '-');
+  IsDirectory := DirectoryExists(aVersion);
+end;
+
+
+procedure TLocalDependency.BuildDownloadURL(var URL, DesiredFileName, DesiredExtension: string);
+var
+  OriginalExt: string;
+begin
+  if IsDirectory then
+    OriginalExt := 'dir'
+  else if FileExists(Version) then begin
+    OriginalExt := ReplaceStr(ExtractFileExt(Version), '.', '');
+  end
+  else
+    raise Exception.CreateFmt('Dependency "%s" file/directory not found: %s', [Name, Version]);
+
+  DesiredFileName := Format('%s', [CleanName]);
+  DesiredExtension := OriginalExt;
+  URL := Format('local:%s', [Version]);
+end;
+
+
+procedure TLocalDependency.Install(const Path, InstallDir: string);
+begin
+  Mkdir (InstallDir);
+  if IsDirectory then
+    CopyDirRecursive (Path, InstallDir)
+  else
+    UnzipFile (Path, InstallDir);
+end;
+
+
+function TLocalDependency.GetPackagePath(var Path: string): boolean;
+var
+  InstallDest: string;
+  Res: TSearchRec;
+  It: integer;
+  MainDir: string;
+begin
+  InstallDest := InstallDestination(Format('%s', [CleanName]));
+  Path := InstallDest;
+  PackagePath := Path;
+  exit(true);
+end;
+
+
 { TPackage }
 
 
@@ -441,8 +603,8 @@ begin
   DependencyObjects := TDependencyObjectDict.Create;
   DependencyPackages := TDependencyPackageDict.Create;
   CompilerOptions := TStringList.Create;
-  UnitsDirs := TStringList.Create;
-  RecursiveUnitsDirs := TStringList.Create;
+  UnitPath := TStringList.Create;
+  RecursiveUnitPath := TStringList.Create;
   Patches := TDependencyPackageDict.Create;
 end;
 
@@ -489,16 +651,16 @@ begin
       if Length(PackagesDir) = 0 then
         PackagesDir := 'pjamas-packages';
 
-      if JSONObject.Find('UnitsDirs', jtArray) <> nil then
+      if JSONObject.Find('UnitPath', jtArray) <> nil then
       begin
-        JSONArray := JSONObject.Arrays['UnitsDirs'];
+        JSONArray := JSONObject.Arrays['UnitPath'];
         for I := 0 to JSONArray.Count - 1 do
         begin
           Dir := JSONArray.Strings[I];
           if StartsStr('recursive:', Dir) then
-            RecursiveUnitsDirs.Add(StringReplace(Dir, 'recursive:', '', ReplaceFlags, ReplaceCount))
+            RecursiveUnitPath.Add(StringReplace(Dir, 'recursive:', '', ReplaceFlags, ReplaceCount))
           else
-            UnitsDirs.Add(JSONArray.Strings[I]);
+            UnitPath.Add(JSONArray.Strings[I]);
         end;
       end;
 
@@ -586,9 +748,9 @@ begin
     if CompilerOptions.Count > 0 then JSONObject.Add('CompilerOptions', JoinStrings(CompilerOptions, ' '));
 
     JSONArray := TJSONArray.Create;
-    for I:=0 to UnitsDirs.Count - 1 do JSONArray.Add(UnitsDirs[I]);
-    for I:=0 to RecursiveUnitsDirs.Count - 1 do JSONArray.Add('recursive:'+RecursiveUnitsDirs[I]);
-    JSONObject.Add('UnitsDirs', JSONArray);
+    for I:=0 to UnitPath.Count - 1 do JSONArray.Add(UnitPath[I]);
+    for I:=0 to RecursiveUnitPath.Count - 1 do JSONArray.Add('recursive:'+RecursiveUnitPath[I]);
+    JSONObject.Add('UnitPath', JSONArray);
 
     DepsObject := TJSONObject.Create;
     for DepPair in DependencyDict do DepsObject.Add(DepPair.Key, DepPair.Value);
@@ -628,8 +790,8 @@ begin
   if UsedBy <> nil then
   begin
     if UsedBy.Patches.TryGetValue(Dependency.Name, PatchPkg) then
-      for UnitDir in PatchPkg.UnitsDirs do
-        UnitsDirs.Add(Dependency.PackagePath + '/' + UnitDir);
+      for UnitDir in PatchPkg.UnitPath do
+        UnitPath.Add(Dependency.PackagePath + '/' + UnitDir);
   end;
 
   It := FindFirst(IncludeTrailingPathDelimiter(Path) + '*', faAnyFile, Rec);
@@ -640,7 +802,7 @@ begin
       begin
         if EndsText('.pas', Rec.Name) then
         begin
-          UnitsDirs.Add(Path);
+          UnitPath.Add(Path);
           break;
         end;
       end;
@@ -658,8 +820,11 @@ var
 
   procedure ParseDependency(dName, dVersion: string);
   begin
+    // @TODO: improve this checks
     if AnsiPos('github.com', dName) <> 0 then
       DependencyObjects.Add(dName, TGithubDependency.Create(dName, dVersion))
+    else if AnsiPos('local:', dName) <> 0 then
+      DependencyObjects.Add(dName, TLocalDependency.Create(dName, dVersion))
     else
       raise Exception.CreateFmt('unknown dependency type: %s', [dName]);
   end;
@@ -695,7 +860,7 @@ begin
     begin
       if Options.ForceDownload or (not FileExists(FileDest)) then
       begin
-        DownloadFile(url, FileDest);
+        DownloadOrCopyFile(url, FileDest);
       end;
 
       if Options.ForceDownload or (not DirectoryExists(InstallDest)) then
@@ -863,10 +1028,10 @@ begin
     CurrentPackage.RefreshDependenciesObjects;
     CurrentPackage.DownloadDependencies;
 
-    for UnitDir in CurrentPackage.UnitsDirs do
+    for UnitDir in CurrentPackage.UnitPath do
       UnitDirs.Add(UnitDir);
 
-    for UnitDir in CurrentPackage.RecursiveUnitsDirs do
+    for UnitDir in CurrentPackage.RecursiveUnitPath do
       AddRecursiveDir(UnitDir);
 
     { Only allow compiler options from root package for now }
