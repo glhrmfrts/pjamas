@@ -2,8 +2,8 @@
   "Name": "",
   "Version": "",
   "Compiler": "Pas2JS",
-  "PackagesDir": "../pjamas-packages",
-  "UnitsDirs": [
+  "PackagePath": "../pjamas-packages",
+  "UnitPath": [
     "."
   ],
   "Dependencies": {

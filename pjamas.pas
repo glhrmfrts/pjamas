@@ -85,7 +85,7 @@ type
     Version: string;
     Compiler: TCompiler;
     CompilerOptions: TStringList;
-    PackagesDir: string;
+    PackagePath: string;
     UnitPath: TStringList;
     RecursiveUnitPath: TStringList;
     IncludePath: TStringList;
@@ -208,7 +208,7 @@ const
       Desc: 'Space-separated compiler flags and options';
     ),
     (
-      Name: 'PackagesDir';
+      Name: 'PackagePath';
       Typ: 'string';
       Desc: 'Where to store the downloaded packages (default: pjamas-packages)';
     ),
@@ -257,7 +257,7 @@ end;
 function DownloadDestination(const DepFileName, DepExt: string): string;
 begin
   Result := Format('%s/%s/%s.%s', [
-    RootPackage.PackagesDir,
+    RootPackage.PackagePath,
     DownloadDirName,
     DepFileName,
     DepExt
@@ -268,7 +268,7 @@ end;
 function InstallDestination(const DepFileName: string): string;
 begin
   Result := Format('%s/%s/%s', [
-    RootPackage.PackagesDir,
+    RootPackage.PackagePath,
     InstalledDirName,
     DepFileName
   ]);
@@ -645,11 +645,11 @@ begin
       if JSONObject.Find('CompilerOptions', jtString) <> nil then
         CompilerOptions.SetStrings(SplitString(JSONObject.Get('CompilerOptions', ''), ' '));
 
-      if JSONObject.Find('PackagesDir', jtString) <> nil then
-        PackagesDir := JSONObject.Get('PackagesDir', '');
+      if JSONObject.Find('PackagePath', jtString) <> nil then
+        PackagePath := JSONObject.Get('PackagePath', '');
 
-      if Length(PackagesDir) = 0 then
-        PackagesDir := 'pjamas-packages';
+      if Length(PackagePath) = 0 then
+        PackagePath := 'pjamas-packages';
 
       if JSONObject.Find('UnitPath', jtArray) <> nil then
       begin
@@ -741,7 +741,7 @@ begin
   try
     if Length(Name) > 0 then JSONObject.Add('Name', Name);
     if Length(Version) > 0 then JSONObject.Add('Version', Version);
-    if Length(PackagesDir) > 0 then JSONObject.Add('PackagesDir', PackagesDir);
+    if Length(PackagePath) > 0 then JSONObject.Add('PackagePath', PackagePath);
 
     JSONObject.Add('Compiler', CompilerToString(Compiler));
 
@@ -1013,14 +1013,14 @@ begin
     end;
   end;
 
-  if not DirectoryExists(RootPackage.PackagesDir) then
-    Mkdir(RootPackage.PackagesDir);
+  if not DirectoryExists(RootPackage.PackagePath) then
+    Mkdir(RootPackage.PackagePath);
 
-  if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.PackagesDir)+DownloadDirName) then
-    Mkdir(IncludeTrailingPathDelimiter(RootPackage.PackagesDir)+DownloadDirName);
+  if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.PackagePath)+DownloadDirName) then
+    Mkdir(IncludeTrailingPathDelimiter(RootPackage.PackagePath)+DownloadDirName);
 
-  if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.PackagesDir)+InstalledDirName) then
-    Mkdir(IncludeTrailingPathDelimiter(RootPackage.PackagesDir)+InstalledDirName);
+  if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.PackagePath)+InstalledDirName) then
+    Mkdir(IncludeTrailingPathDelimiter(RootPackage.PackagePath)+InstalledDirName);
 
   PackageQueue.Enqueue(RootPackage);
   repeat

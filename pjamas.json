@@ -1,8 +1,8 @@
 {
-  "PackagesDir" : "pjamas-packages",
+  "PackagePath" : "pjamas-packages",
   "Compiler" : "Pas2JS",
   "CompilerOptions" : "-Jc -Jirtl.js",
-  "UnitsDirs" : [
+  "UnitPath" : [
     "recursive:pjamas-packages/installed"
   ],
   "Dependencies" : {

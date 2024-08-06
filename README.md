@@ -43,7 +43,7 @@ In the above example, this file will be created in the current directory as **pj
 {
   "Compiler": "Pas2JS",
   "PackagesDir": "pjamas-packages",
-  "UnitsDirs": [
+  "UnitPath": [
   ],
   "Dependencies": {
     "github.com/glhrmfrts/wetween": "master"
@@ -74,7 +74,7 @@ The only requirement is a standard installation of FPC and Lazarus, the versions
 Then build using Lazarus or use the command-line:
 
 ```bash
-fpc pjamas.lpr
+fpc pjamas.pas
 ```
 
 Which will produce a **pjamas** binary.
