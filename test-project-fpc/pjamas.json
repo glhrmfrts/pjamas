@@ -2,7 +2,7 @@
   "Name": "",
   "Version": "",
   "Compiler": "Pas2JS",
-  "PackagePath": "../pjamas-packages",
+  "PackagesPath": "../pjamas-packages",
   "UnitPath": [
     "."
   ],

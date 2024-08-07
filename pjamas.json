@@ -1,5 +1,5 @@
 {
-  "PackagePath" : "pjamas-packages",
+  "PackagesPath" : "pjamas-packages",
   "Compiler" : "Pas2JS",
   "CompilerOptions" : "-Jc -Jirtl.js",
   "UnitPath" : [

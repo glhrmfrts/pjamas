@@ -85,7 +85,8 @@ type
     Version: string;
     Compiler: TCompiler;
     CompilerOptions: TStringList;
-    PackagePath: string;
+    PackagesPath: string;
+    MainUnit: string;
     UnitPath: TStringList;
     RecursiveUnitPath: TStringList;
     IncludePath: TStringList;
@@ -135,6 +136,7 @@ type
     DoWritePackage: boolean;
     DoEchoUnits: boolean;
     DoEchoOptions: boolean;
+    DoEchoMainUnit: boolean;
     ForceDownload: boolean;
   end;
 
@@ -151,6 +153,7 @@ type
     procedure WriteHelp; virtual;
 
     procedure AddCommand(names: TStringArray; description: string; proc: TCommandProc);
+    procedure CmdAll(paramIndex: integer);
     procedure CmdBuild(paramIndex: integer);
     procedure CmdGet(paramIndex: integer);
     procedure CmdHelpJSON(paramIndex: integer);
@@ -208,7 +211,7 @@ const
       Desc: 'Space-separated compiler flags and options';
     ),
     (
-      Name: 'PackagePath';
+      Name: 'PackagesPath';
       Typ: 'string';
       Desc: 'Where to store the downloaded packages (default: pjamas-packages)';
     ),
@@ -238,7 +241,8 @@ var
   RootPackage: TPackage;
   CurrentPackage: TPackage;
   PackageQueue: TPackageQueue;
-  UnitDirs: TStringList;
+  AllUnitDirs: TStringList;
+  AllIncludeDirs: TStringList;
   CommandParams: TStringArray;
   Options: TPjamasOptions;
   CompilerOptions: TStringList;
@@ -257,7 +261,7 @@ end;
 function DownloadDestination(const DepFileName, DepExt: string): string;
 begin
   Result := Format('%s/%s/%s.%s', [
-    RootPackage.PackagePath,
+    RootPackage.PackagesPath,
     DownloadDirName,
     DepFileName,
     DepExt
@@ -268,7 +272,7 @@ end;
 function InstallDestination(const DepFileName: string): string;
 begin
   Result := Format('%s/%s/%s', [
-    RootPackage.PackagePath,
+    RootPackage.PackagesPath,
     InstalledDirName,
     DepFileName
   ]);
@@ -407,7 +411,7 @@ begin
 end;
 
 
-procedure AddRecursiveDir(Dir: string);
+procedure AddRecursiveDir(var Target: TStringList; Dir: string);
 var
   It: integer;
   Res: TSearchRec;
@@ -421,7 +425,7 @@ begin
     begin
       if (Res.Name<>'.') and (Res.Name<>'..') then
         if ((Res.Attr and faDirectory)<>0) then
-          AddRecursiveDir(ConcatPaths([Dir, Res.Name]))
+          AddRecursiveDir(Target, ConcatPaths([Dir, Res.Name]))
         else
         begin
           Ext := ExtractFileExt(Res.Name);
@@ -437,7 +441,7 @@ begin
   finally
     FindClose(Res);
   end;
-  if AddThis then UnitDirs.Add(Dir);
+  if AddThis then Target.Add(Dir);
 end;
 
 
@@ -605,6 +609,8 @@ begin
   CompilerOptions := TStringList.Create;
   UnitPath := TStringList.Create;
   RecursiveUnitPath := TStringList.Create;
+  IncludePath := TStringList.Create;
+  RecursiveIncludePath := TStringList.Create;
   Patches := TDependencyPackageDict.Create;
 end;
 
@@ -626,6 +632,24 @@ var
     result := compilerPas2JS;
   end;
 
+  procedure ParsePath(const K: string; var Paths: TStringList; var RecursivePaths: TStringList);
+  var
+    I: integer;
+  begin
+    if JSONObject.Find(K, jtArray) <> nil then
+    begin
+      JSONArray := JSONObject.Arrays[K];
+      for I := 0 to JSONArray.Count - 1 do
+      begin
+        Dir := JSONArray.Strings[I];
+        if StartsStr('recursive:', Dir) then
+          RecursivePaths.Add(StringReplace(Dir, 'recursive:', '', ReplaceFlags, ReplaceCount))
+        else
+          Paths.Add(JSONArray.Strings[I]);
+      end;
+    end;
+  end;
+
 begin
   JSONData := GetJSON(JSONString);
   try
@@ -645,24 +669,17 @@ begin
       if JSONObject.Find('CompilerOptions', jtString) <> nil then
         CompilerOptions.SetStrings(SplitString(JSONObject.Get('CompilerOptions', ''), ' '));
 
-      if JSONObject.Find('PackagePath', jtString) <> nil then
-        PackagePath := JSONObject.Get('PackagePath', '');
+      if JSONObject.Find('PackagesPath', jtString) <> nil then
+        PackagesPath := JSONObject.Get('PackagesPath', '');
 
-      if Length(PackagePath) = 0 then
-        PackagePath := 'pjamas-packages';
+      if JSONObject.Find('MainUnit', jtString) <> nil then
+        MainUnit := JSONObject.Get('MainUnit', '');
 
-      if JSONObject.Find('UnitPath', jtArray) <> nil then
-      begin
-        JSONArray := JSONObject.Arrays['UnitPath'];
-        for I := 0 to JSONArray.Count - 1 do
-        begin
-          Dir := JSONArray.Strings[I];
-          if StartsStr('recursive:', Dir) then
-            RecursiveUnitPath.Add(StringReplace(Dir, 'recursive:', '', ReplaceFlags, ReplaceCount))
-          else
-            UnitPath.Add(JSONArray.Strings[I]);
-        end;
-      end;
+      if Length(PackagesPath) = 0 then
+        PackagesPath := 'pjamas-packages';
+
+      ParsePath('UnitPath', UnitPath, RecursiveUnitPath);
+      ParsePath('IncludePath', IncludePath, RecursiveIncludePath);
 
       if JSONObject.Find('Dependencies', jtObject) <> nil then
       begin
@@ -741,7 +758,8 @@ begin
   try
     if Length(Name) > 0 then JSONObject.Add('Name', Name);
     if Length(Version) > 0 then JSONObject.Add('Version', Version);
-    if Length(PackagePath) > 0 then JSONObject.Add('PackagePath', PackagePath);
+    if Length(PackagesPath) > 0 then JSONObject.Add('PackagesPath', PackagesPath);
+    if Length(MainUnit) > 0 then JSONObject.Add('MainUnit', MainUnit);
 
     JSONObject.Add('Compiler', CompilerToString(Compiler));
 
@@ -751,6 +769,13 @@ begin
     for I:=0 to UnitPath.Count - 1 do JSONArray.Add(UnitPath[I]);
     for I:=0 to RecursiveUnitPath.Count - 1 do JSONArray.Add('recursive:'+RecursiveUnitPath[I]);
     JSONObject.Add('UnitPath', JSONArray);
+
+    if (IncludePath.Count > 0) or (RecursiveIncludePath.Count > 0) then begin
+      JSONArray := TJSONArray.Create;
+      for I:=0 to IncludePath.Count - 1 do JSONArray.Add(IncludePath[I]);
+      for I:=0 to RecursiveIncludePath.Count - 1 do JSONArray.Add('recursive:'+RecursiveIncludePath[I]);
+      JSONObject.Add('IncludePath', JSONArray);
+    end;
 
     DepsObject := TJSONObject.Create;
     for DepPair in DependencyDict do DepsObject.Add(DepPair.Key, DepPair.Value);
@@ -790,8 +815,12 @@ begin
   if UsedBy <> nil then
   begin
     if UsedBy.Patches.TryGetValue(Dependency.Name, PatchPkg) then
+    begin
       for UnitDir in PatchPkg.UnitPath do
         UnitPath.Add(Dependency.PackagePath + '/' + UnitDir);
+      for UnitDir in PatchPkg.IncludePath do
+        IncludePath.Add(Dependency.PackagePath + '/' + UnitDir);
+    end;
   end;
 
   It := FindFirst(IncludeTrailingPathDelimiter(Path) + '*', faAnyFile, Rec);
@@ -909,6 +938,14 @@ begin
 end;
 
 
+procedure TPjamasApplication.CmdAll(paramIndex: integer);
+begin
+  Options.DoEchoOptions := true;
+  Options.DoEchoUnits := true;
+  Options.DoEchoMainUnit := true;
+end;
+
+
 procedure TPjamasApplication.CmdBuild(paramIndex: integer);
 begin
   // @TODO
@@ -1000,7 +1037,8 @@ var
   Opt: string;
 begin
   CompilerOptions := TStringList.Create;
-  UnitDirs := TStringList.Create;
+  AllUnitDirs := TStringList.Create;
+  AllIncludeDirs := TStringList.Create;
   PackageQueue := TPackageQueue.Create;
 
   if not FileExists(PjamasFile) then
@@ -1013,14 +1051,14 @@ begin
     end;
   end;
 
-  if not DirectoryExists(RootPackage.PackagePath) then
-    Mkdir(RootPackage.PackagePath);
+  if not DirectoryExists(RootPackage.PackagesPath) then
+    Mkdir(RootPackage.PackagesPath);
 
-  if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.PackagePath)+DownloadDirName) then
-    Mkdir(IncludeTrailingPathDelimiter(RootPackage.PackagePath)+DownloadDirName);
+  if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.PackagesPath)+DownloadDirName) then
+    Mkdir(IncludeTrailingPathDelimiter(RootPackage.PackagesPath)+DownloadDirName);
 
-  if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.PackagePath)+InstalledDirName) then
-    Mkdir(IncludeTrailingPathDelimiter(RootPackage.PackagePath)+InstalledDirName);
+  if not DirectoryExists(IncludeTrailingPathDelimiter(RootPackage.PackagesPath)+InstalledDirName) then
+    Mkdir(IncludeTrailingPathDelimiter(RootPackage.PackagesPath)+InstalledDirName);
 
   PackageQueue.Enqueue(RootPackage);
   repeat
@@ -1029,10 +1067,16 @@ begin
     CurrentPackage.DownloadDependencies;
 
     for UnitDir in CurrentPackage.UnitPath do
-      UnitDirs.Add(UnitDir);
+      AllUnitDirs.Add(UnitDir);
+
+    for UnitDir in CurrentPackage.IncludePath do
+      AllIncludeDirs.Add(UnitDir);
 
     for UnitDir in CurrentPackage.RecursiveUnitPath do
-      AddRecursiveDir(UnitDir);
+      AddRecursiveDir(AllUnitDirs, UnitDir);
+
+    for UnitDir in CurrentPackage.RecursiveIncludePath do
+      AddRecursiveDir(AllIncludeDirs, UnitDir);
 
     { Only allow compiler options from root package for now }
     if CurrentPackage = RootPackage then
@@ -1049,6 +1093,11 @@ var
   UnitDir: string;
   Opt: string;
 begin
+  AddCommand(
+    ['all'],
+    'Return the complete command-line that should be fed into FPC/Pas2JS',
+    @CmdAll
+  );
   AddCommand(
     ['get'],
     'Add dependency to project',
@@ -1098,7 +1147,9 @@ begin
 
   CommandParams := GetNonOptions(ShortOpts, LongOpts);
   if Length(CommandParams) > 0 then
-    ExecuteCommand(CommandParams[0], 1);
+    ExecuteCommand(CommandParams[0], 1)
+  else
+    ExecuteCommand('all', 1);
 
   MainRoutine;
 
@@ -1118,12 +1169,22 @@ begin
 
   if Options.DoEchoUnits then
   begin
-    for UnitDir in UnitDirs do
+    for UnitDir in AllUnitDirs do
     begin
       write('-Fu', UnitDir, ' ');
     end;
-    writeln('');
+    for UnitDir in AllIncludeDirs do
+    begin
+      write('-Fi', UnitDir, ' ');
+    end;
   end;
+
+  if Options.DoEchoMainUnit then
+  begin
+    write(RootPackage.MainUnit);
+  end;
+
+  writeln('');
 
   // stop program loop
   Terminate;
