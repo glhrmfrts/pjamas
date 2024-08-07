@@ -8,6 +8,14 @@ This is a simple non-official package manager focused on Pas2JS, the Pascal-to-J
 
 ## How to use
 
+The idea is to copy the single **pjamas.pas** file to your project, build it with:
+
+```pascal
+fpc pjamas.pas
+```
+
+And now use the **pjamas** resulting binary to manage your packages.
+
 Let's say we have a simple program that wants to use this code: https://github.com/glhrmfrts/wetween.
 
 ```pascal
@@ -42,7 +50,7 @@ In the above example, this file will be created in the current directory as **pj
 ```json
 {
   "Compiler": "Pas2JS",
-  "PackagesDir": "pjamas-packages",
+  "PackagesPath": "pjamas-packages",
   "UnitPath": [
   ],
   "Dependencies": {
@@ -66,10 +74,9 @@ package directory. Dependencies that depends on other packages will also install
 
 ## How to build
 
-The only requirement is a standard installation of FPC and Lazarus, the versions used in the development are:
+The only requirement is a standard installation of FPC, the versions used in the development are:
 
 - Free Pascal Compiler version 3.2.2
-- Lazarus v3.0
 
 Then build using Lazarus or use the command-line:
 
